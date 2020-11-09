@@ -67,7 +67,7 @@ def create_graph_from_json(data, format='nx'):
             e = g.add_edge(vertices[src], vertices[dst])
             g.edge_properties['weight'][e] = weight
     else:
-        raise ValueError("format must be nx or gt")
+        raise TypeError("format must be nx or gt")
     return g
 
 
@@ -83,9 +83,6 @@ def nx2gt(nxG):
     graph-tool graph
     """
     gtG = gt.Graph(directed=nxG.is_directed())
-    # gtG.vertex_properties['id'] = gtG.new_vp('string')
-    # gtG.vertex_properties['cc_licenses'] = gtG.new_vp('object')
-    # gtG.vertex_properties['images'] = gtG.new_vp('int')
     expected_vtx_props = _gt_vtx_props()
     for prop, prop_type in expected_vtx_props:
         gtG.vertex_properties[prop] = gtG.new_vp(prop_type)
@@ -138,7 +135,7 @@ def get_licenses(g):
             for license in g.vp['cc_licenses'][v]:
                 licenses.add(license)
     else:
-        raise ValueError('format must be nx or gt')
+        raise TypeError('format must be nx or gt')
     return licenses
 
 
@@ -153,6 +150,8 @@ def restrict_graph_by_property(g, prop):
     Returns:
     a networkx subgraph view for the induced subgraph
     """
+    if not isinstance(g, nx.Graph):
+        raise TypeError('not a networkx graph')
     subgraph_nodes = []
     for node_id, data in g.nodes(data=True):
         if prop(node_id, data):
@@ -171,6 +170,8 @@ def restrict_graph_by_license(g, license):
     Returns:
     a networkx subgraph view for the induced subgraph
     """
+    if not isinstance(g, nx.Graph):
+        raise TypeError('not a networkx graph')
     subgraph_nodes = []
     for node_id, cc_licenses in g.nodes(data='cc_licenses'):
         # If the most popular license is license
@@ -178,6 +179,75 @@ def restrict_graph_by_license(g, license):
             if license in cc_licenses and cc_licenses[license] >= max(cc_licenses.values()):
                 subgraph_nodes.append(node_id)
     return nx.induced_subgraph(g, subgraph_nodes)
+
+
+def all_license_subgraphs(g, licenses, quota=1, proportion=0):
+    """Takes a graph and returns the subgraphs induced by different 
+    licenses types.
+    
+    Parameters:
+    g: either a gt.Graph or a nx.Graph
+    licenses: list of keys to be used for the return dict
+    quota: an int for the minimum number of licenses of a given type to appear
+        in that licenses subgraph
+    proportion: a float for the proportion of licenses on the domain that should
+        be the given license type
+    
+    Returns:
+    a dict mapping string license names to subgraphs
+    """
+    if isinstance(g, gt.Graph):
+        subgraph_by_license = dict()
+        for license in licenses:
+            nodes = g.new_vp('bool')
+            for v in g.vertices():
+                cc_licenses = g.vp['cc_licenses'][v]
+                if isinstance(cc_licenses, dict):
+                    total_licenses = sum(cc_licenses.values())
+                    if (license in cc_licenses
+                            and cc_licenses[license] >= proportion * total_licenses
+                            and cc_licenses[license] >= quota):
+                        nodes[v] = True
+                else:
+                    nodes[v] = False
+            subgraph_by_license[license] = gt.GraphView(g, vfilt=nodes)
+        return subgraph_by_license
+    elif isinstance(g, nx.Graph):
+        subgraph_by_license = dict()
+        for license in licenses:
+            nodes = set()
+            for v, data in g.nodes(data=True):
+                cc_licenses = data['cc_licenses']
+                if isinstance(cc_licenses, dict):
+                    total_licenses = sum(cc_licenses.values())
+                    if (license in cc_licenses
+                            and cc_licenses[license] >= proportion * total_licenses
+                            and cc_licenses[license] >= quota):
+                        nodes.add(v)
+            subgraph_by_license[license] = nx.induced_subgraph(g, nodes)
+        return subgraph_by_license
+    else:
+        raise TypeError('graph format not recognized, must be nx or gt')
+
+        
+def get_licenses(g):
+    """Get the set of licenses appearing in the graph"""
+    if isinstance(g, gt.Graph):
+        licenses = set()
+        for i, cc_licenses in enumerate(g.vp['cc_licenses']):
+            if isinstance(cc_licenses, dict):
+                licenses |= cc_licenses.keys()
+        return licenses
+    elif isinstance(g, nx.Graph):
+        licenses = set()
+        for node, data in g.nodes(data=True):
+            cc_licenses = data['cc_licenses']
+            if isinstance(cc_licenses, dict):
+                licenses |= cc_licenses.keys()
+        return licenses
+    else:
+        raise TypeError('graph format not recognized')
+    
 
 def cc_licenses_by_domain(g):
     """Returns a dictionary mapping node_id to their cc_licenses dict, assuming it is nonempty
