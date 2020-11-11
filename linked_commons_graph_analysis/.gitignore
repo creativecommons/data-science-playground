@@ -1,0 +1,13 @@
+# Visual Studio Code folder
+.vscode/
+
+# Jupyter Checkpoints
+.ipynb_checkpoints
+
+# Python temporary files and binaries
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Dataset
+fdg_input_file.json
